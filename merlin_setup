@@ -1,0 +1,7 @@
+#!/bin/bash
+
+export MFS="$(pwd)"
+export MB="${MFS}/bin"
+export MM="${MFS}/merlin"
+
+# export PYTHONPATH="${PYTHONPATH}:${MM}/python2.7libs"

@@ -1,0 +1,10 @@
+#!/usr/bin/env python
+
+if __name__ == "__main__":
+    import os
+    import sys
+    merlpy = os.environ['MM']
+    sys.path.append(os.path.join(merlpy, 'python2.7libs'))
+
+    import merlin
+    merlin.main()
