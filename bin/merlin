@@ -4,7 +4,4 @@ DIR="$(dirname "$0")"
 APP="$(basename "$0")"
 source "${DIR}/init_util.sh" "${DIR}"
 
-echo "$0"
-echo "${DIR}"
-
 exec "${DIR}/_${APP}-bin" "$@"
