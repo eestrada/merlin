@@ -59,4 +59,3 @@ class Mat4(object):
     def __init__(self, arg):
         super(Mat4, self).__init__()
         self.arg = arg
-        
