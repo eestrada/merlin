@@ -3,10 +3,25 @@ import abc
 import cython
 import collections
 import itertools
+import weakref
+
+@cython.locals(s=collections.Sequence, i=cython.int)
+def _seq_get(s, i, *args):
+    try:
+        return s[i]
+    except IndexError as e:
+        if args:
+            return args[0]
+        else:
+            raise e
 
 class _VecBase(object):
-    __metaclass__ = abc.ABCMeta
+    # __metaclass__ = abc.ABCMeta
     __slots__ = ()
+
+    def __init__(self, *args, **kwargs):
+        for i, a in enumerate(self.__slots__[:-1]):
+            setattr(self, a, kwargs.get(a, _seq_get(args, i, 0.0)))
 
     def __repr__(self):
         values = ', '.join(map(repr, self))
@@ -47,23 +62,10 @@ class _VecBase(object):
         return setattr(self, self.__slots__[:-1][i], v)
 
     def __len__(self):
-        return len(self.__slots__) - 1
+        return max(0, len(self.__slots__) - 1)
 
-    def __delitem__(self, i):
-        raise NotImplementedError("Cannot delete items on a {0.__class__.__name__}".format(self))
-
-    def insert(self, i, v):
-        raise NotImplementedError("Cannot insert items into a {0.__class__.__name__}".format(self))
-
-@cython.locals(s=collections.Sequence, i=cython.int)
-def _seq_get(s, i, *args):
-    try:
-        return s[i]
-    except IndexError as e:
-        if args:
-            return args[0]
-        else:
-            raise e
+    __delitem__ = None
+    insert = None
 
 class Vec(_VecBase, collections.MutableSequence):
     """docstring for Vec"""
@@ -72,56 +74,156 @@ class Vec(_VecBase, collections.MutableSequence):
 
     cython.declare(x=cython.double, y=cython.double, z=cython.double)
     def __init__(self, *args, **kwargs):
-        super(Vec, self).__init__()
-        self.x = kwargs.get('x', _seq_get(args, 0, 0.0))
-        self.y = kwargs.get('y', _seq_get(args, 1, 0.0))
-        self.z = kwargs.get('z', _seq_get(args, 2, 0.0))
-
-    def __len__(self):
-        return 3
-
+        super(Vec, self).__init__(*args, **kwargs)
 
 class Vec4(_VecBase, collections.MutableSequence):
     """docstring for Vec4"""
 
     __slots__ = ('x', 'y', 'z', 'w', '__weakref__')
+
     cython.declare(x=cython.double, y=cython.double, z=cython.double, w=cython.double)
     def __init__(self, *args, **kwargs):
-        super(Vec4, self).__init__()
-        self.x = kwargs.get('x', _seq_get(args, 0, 0.0))
-        self.y = kwargs.get('y', _seq_get(args, 1, 0.0))
-        self.z = kwargs.get('z', _seq_get(args, 2, 0.0))
+        super(Vec4, self).__init__(*args, **kwargs)
         self.w = kwargs.get('w', _seq_get(args, 3, 1.0))
 
-    @cython.locals(i=cython.int)
-    def __getitem__(self, i):
-        if i < 0 or i >= len(self): raise IndexError()
-        return getattr(self, self.__slots__[i])
+class ParmType(object):
+    """Enum for Parameter types"""
+    StringField = 0
+    IntSlider = 1
+    FloatSlider = 2
+    Toggle = 3
+    def __init__(self, arg):
+        super(ParmType, self).__init__()
+        self.arg = arg
 
-    @cython.locals(i=cython.int, v=cython.double)
+class Parameter(object):
+    """docstring for Parameter"""
+
+
+    @abc.abstractmethod
+    def eval(self):
+        pass
+
+    @abc.abstractproperty
+    def node(self):
+        pass
+
+    def evalAsString(self):
+        return str(self.eval())
+
+    def evalAsInt(self):
+        return int(self.eval())
+
+    def evalAsFloat(self):
+        return float(self.eval())
+
+class ParmToggle(Parameter):
+    """docstring for Toggle"""
+
+    def __init__(self, node, default=False):
+        super(Parameter, self).__init__()
+        self.node = weakref.ref(node)
+        self.value = self.default = bool(default)
+        self.expression = None
+
+    def eval(self):
+        return bool(self.expression.eval()) if self.expression else bool(self.value)
+
+class _InputMap(weakref.WeakValueDictionary):
+    """docstring for _InputMap"""
+
+    def __init__(self, max):
+        super(_FixedLengthSeq, self).__init__()
+        self.__max = max
+
     def __setitem__(self, i, v):
-        if i < 0 or i >= len(self): raise IndexError()
-        return setattr(self, self.__slots__[i], v)
+        if not isinstance(v, Node) or not isinstance(i, int):
+            raise TypeError("key must be an integer and value must be a Node")
+        elif i < 0 or i >= self.__max:
+            raise ValueError("index value must be between 0 and %s" % self.__max)
 
-    def __len__(self):
-        return 4
+        return super(_InputMap, self).__setitem__(i, v)
 
-class String(object):
-    """docstring for String"""
-    def __init__(self, arg):
-        super(String, self).__init__()
-        self.arg = arg
+    def rotate(self):
+        pass
 
-class Mat3(object):
-    """docstring for Mat3"""
-    # cython.declare(v=cython.double[9])
-    def __init__(self, arg):
-        super(Mat3, self).__init__()
-        self.arg = arg
+class _TypedList(list):
+    """docstring for _TypedList"""
+    def __init__(self, type):
+        super(_TypedList, self).__init__()
+        self.__type = type
 
-class Mat4(object):
-    """docstring for Mat4"""
-    # cython.declare(v=cython.double[16])
-    def __init__(self, arg):
-        super(Mat4, self).__init__()
-        self.arg = arg
+    def __setitem__(self, i, v):
+        if not isinstance(v, self.type):
+            raise ValueError()
+        return super(_TypedList, self).__setitem__(i, v)
+
+    def append(self, v):
+        if not isinstance(v, self.type):
+            raise ValueError()
+        return super(_TypedList, self).append(v)
+
+    def extend(self, iterable):
+        tmp = list()
+        for i, v in enumerate(iterable):
+            if not isinstance(v, self.type):
+                raise ValueError()
+            tmp.append(v)
+        return super(_TypedList, self).extend(tmp)
+
+    def insert(self, i, v):
+        if not isinstance(v, self.type):
+            raise ValueError()
+        return super(_TypedList, self).insert(i, v)
+
+    @property
+    def type(self):
+        return self.__type        
+
+class Node(object):
+    __metaclass__ = abc.ABCMeta
+
+    """docstring for Node"""
+    def __init__(self):
+        super(Node, self).__init__()
+        self.__inputs = _InputMap(self.numInputs)
+        self.__parameters = _TypedList(Parameter)
+        self.__inputLabels = _TypedList(str)
+        self.__inputLabels.extend(map("Input: {0}".format, range(self.numInputs)))
+        # self.__name = type(self).__name__
+
+    @abc.abstractmethod
+    def cook(self, *args, **kwargs):
+        """Method to call when a node instance is being cooked
+
+        The value it returns is context specific. For instance, in a geometry context, a geometry object would be returned."""
+        pass
+
+    @abc.abstractproperty
+    def path(self):
+        """The full path to this node in the hierarchy."""
+        pass
+
+    @abc.abstractproperty
+    def name(self):
+        pass
+
+    @property
+    def inputs(self):
+        """Return a mutable mapping object with input indices as the keys and Nodes as the values"""
+        return self.__inputs
+
+    @abc.abstractproperty
+    def numInputs(self):
+        return 1
+
+    @property
+    def inputLabels(self):
+        return self.__inputLabels
+
+    @property
+    def parameters(self):
+        """Return a mutable sequence of all parameters.
+
+        Parameters may be nested if they are of the correct type (e.g. Folder type)."""
+        return self.__parameters
