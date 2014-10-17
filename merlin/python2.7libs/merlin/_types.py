@@ -67,14 +67,24 @@ class _VecBase(object):
     __delitem__ = None
     insert = None
 
-class Vec(_VecBase, collections.MutableSequence):
-    """docstring for Vec"""
+
+class Vec2(_VecBase, collections.MutableSequence):
+    """docstring for Vec2"""
+
+    __slots__ = ('x', 'y', '__weakref__')
+
+    cython.declare(x=cython.double, y=cython.double)
+    def __init__(self, *args, **kwargs):
+        super(Vec2, self).__init__(*args, **kwargs)
+
+class Vec3(_VecBase, collections.MutableSequence):
+    """docstring for Vec3"""
 
     __slots__ = ('x', 'y', 'z', '__weakref__')
 
     cython.declare(x=cython.double, y=cython.double, z=cython.double)
     def __init__(self, *args, **kwargs):
-        super(Vec, self).__init__(*args, **kwargs)
+        super(Vec3, self).__init__(*args, **kwargs)
 
 class Vec4(_VecBase, collections.MutableSequence):
     """docstring for Vec4"""
@@ -186,6 +196,7 @@ class Node(object):
     """docstring for Node"""
     def __init__(self):
         super(Node, self).__init__()
+        self.__position = Vec2(x=0, y=0)
         self.__inputs = _InputMap(self.numInputs)
         self.__parameters = _TypedList(Parameter)
         self.__inputLabels = _TypedList(str)
@@ -208,14 +219,25 @@ class Node(object):
     def name(self):
         pass
 
-    @property
-    def inputs(self):
-        """Return a mutable mapping object with input indices as the keys and Nodes as the values"""
-        return self.__inputs
+    @abc.abstractproperty
+    def children(self):
+        """A set of the Node's children.
+
+        For nodes that cannot have children, this returns None."""
+        return None
 
     @abc.abstractproperty
     def numInputs(self):
         return 1
+
+    @property
+    def position(self):
+        return self.__position
+
+    @property
+    def inputs(self):
+        """Return a mutable mapping object with input indices as the keys and Nodes as the values"""
+        return self.__inputs
 
     @property
     def inputLabels(self):
