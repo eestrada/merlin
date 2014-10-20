@@ -15,6 +15,9 @@ def _seq_get(s, i, *args):
         else:
             raise e
 
+def type_compatible(a, b):
+    return isinstance(a, b.__class__) or isinstance(b, a.__class__)
+
 class _VecBase(object):
     # __metaclass__ = abc.ABCMeta
     __slots__ = ()
@@ -34,6 +37,8 @@ class _VecBase(object):
         return self
 
     def __add__(self, other):
+        if len(self) != len(other): raise ValueError()
+        assert type_compatible(self, other)
         assert len(self) == len(other)
         rval = self.__class__(*self)
         for i in range(len(rval)):
@@ -174,10 +179,8 @@ class _TypedList(list):
         return super(_TypedList, self).append(v)
 
     def extend(self, iterable):
-        tmp = list()
+        tmp = self.__class__(self.type)
         for i, v in enumerate(iterable):
-            if not isinstance(v, self.type):
-                raise ValueError()
             tmp.append(v)
         return super(_TypedList, self).extend(tmp)
 
@@ -194,14 +197,20 @@ class Node(object):
     __metaclass__ = abc.ABCMeta
 
     """docstring for Node"""
-    def __init__(self):
+    def __init__(self, parent, name=None):
         super(Node, self).__init__()
+        if not isinstance(parent, Node) and parent is not None: raise TypeError()
+
+        self.__parent = parent
         self.__position = Vec2(x=0, y=0)
         self.__inputs = _InputMap(self.numInputs)
         self.__parameters = _TypedList(Parameter)
         self.__inputLabels = _TypedList(str)
         self.__inputLabels.extend(map("Input: {0}".format, range(self.numInputs)))
-        # self.__name = type(self).__name__
+
+        if name is None:
+            name = type(self).__name__
+        self.name = name
 
     @abc.abstractmethod
     def cook(self, *args, **kwargs):
@@ -210,21 +219,53 @@ class Node(object):
         The value it returns is context specific. For instance, in a geometry context, a geometry object would be returned."""
         pass
 
-    @abc.abstractproperty
     def path(self):
         """The full path to this node in the hierarchy."""
-        pass
+        return self._get_path()
 
-    @abc.abstractproperty
+    def _get_path(self, l=[]):
+        l.append(self.name)
+        if self.parent is None:
+            l.reverse()
+            return os.path.join(os.path.sep, *l)
+        else:
+            return self.parent._get_path(l)
+
+    @property
     def name(self):
-        pass
+        return self.__name
+
+    @name.setter
+    def name(self, n):
+        if not isinstance(s, (str, bytes)):
+            raise TypeError()
+        # TODO (eestrada): sanitize input
+        if self.parent is not None:
+            n = self.parent.unique_name(n)
+        self.__name = n
+
+    @property
+    def parent(self):
+        return self.__parent
 
     @abc.abstractproperty
     def children(self):
-        """A set of the Node's children.
+        """Returns an iterator over the Node's children.
 
         For nodes that cannot have children, this returns None."""
         return None
+
+    def unique_name(self, name):
+        raise NotImplementedError()
+        def split_suffix_nums(n):
+            nc = n.rstrip('0123456789')
+            nd = n[len(nc):]
+            return (nc, nd) if nc and nd else None
+
+        childset = set(map(lambda o: o.name, self.children))
+
+        if name in childset:
+            pass
 
     @abc.abstractproperty
     def numInputs(self):
