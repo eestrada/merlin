@@ -144,22 +144,32 @@ class ParmToggle(Parameter):
     def eval(self):
         return bool(self.expression.eval()) if self.expression else bool(self.value)
 
-class _InputMap(weakref.WeakValueDictionary):
+class _InputMap(weakref.WeakValueDictionary, object):
     """docstring for _InputMap"""
 
     def __init__(self, max):
-        super(_FixedLengthSeq, self).__init__()
-        self.__max = max
+        super(_InputMap, self).__init__()
+        self.__max = int(max)
 
     def __setitem__(self, i, v):
         if not isinstance(v, Node) or not isinstance(i, int):
             raise TypeError("key must be an integer and value must be a Node")
-        elif i < 0 or i >= self.__max:
-            raise ValueError("index value must be between 0 and %s" % self.__max)
+        elif i < 0 or i >= self.max:
+            raise ValueError("index value must be between 0 and %s" % self.max)
 
         return super(_InputMap, self).__setitem__(i, v)
 
+    @property
+    def max(self):
+        return self.__max
+
     def rotate(self):
+        """Rotates inputs to the left
+
+        For instance, on a node with three inputs, input 3 will be made input 2, 2 will be made 1, and 1 will be made 3."""
+        # sitems = sorted(self.items())
+        # for i, o in sitems:
+            # self[i-1] = o
         pass
 
 class _TypedList(list):
@@ -179,10 +189,10 @@ class _TypedList(list):
         return super(_TypedList, self).append(v)
 
     def extend(self, iterable):
-        tmp = self.__class__(self.type)
-        for i, v in enumerate(iterable):
-            tmp.append(v)
-        return super(_TypedList, self).extend(tmp)
+        def check_type(o):
+            if not isinstance(o, self.type): raise ValueError()
+            else: return o
+        return super(_TypedList, self).extend(map(check_type, iterable))
 
     def insert(self, i, v):
         if not isinstance(v, self.type):
@@ -213,12 +223,13 @@ class Node(object):
         self.name = name
 
     @abc.abstractmethod
-    def cook(self, *args, **kwargs):
+    def cook(self, **kwargs):
         """Method to call when a node instance is being cooked
 
-        The value it returns is context specific. For instance, in a geometry context, a geometry object would be returned."""
+        The value(s) it receives and/or returns is context specific. For instance, in a geometry context, a geometry object would be returned."""
         pass
 
+    @property
     def path(self):
         """The full path to this node in the hierarchy."""
         return self._get_path()
@@ -237,8 +248,11 @@ class Node(object):
 
     @name.setter
     def name(self, n):
-        if not isinstance(s, (str, bytes)):
-            raise TypeError()
+        if not isinstance(n, str):
+            if isinstance(n, bytes):
+                n = str(n, encoding='utf8')
+            else:
+                raise TypeError()
         # TODO (eestrada): sanitize input
         if self.parent is not None:
             n = self.parent.unique_name(n)
@@ -250,7 +264,7 @@ class Node(object):
 
     @abc.abstractproperty
     def children(self):
-        """Returns an iterator over the Node's children.
+        """Returns a set-like object of the Node's children.
 
         For nodes that cannot have children, this returns None."""
         return None
