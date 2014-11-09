@@ -163,15 +163,6 @@ class _InputMap(weakref.WeakValueDictionary, object):
     def max(self):
         return self.__max
 
-    def rotate(self):
-        """Rotates inputs to the left
-
-        For instance, on a node with three inputs, input 3 will be made input 2, 2 will be made 1, and 1 will be made 3."""
-        # sitems = sorted(self.items())
-        # for i, o in sitems:
-            # self[i-1] = o
-        pass
-
 class _TypedList(list):
     """docstring for _TypedList"""
     def __init__(self, type):
@@ -201,15 +192,71 @@ class _TypedList(list):
 
     @property
     def type(self):
-        return self.__type        
+        return self.__type
+
+def _destroyer(obj):
+    if isinstance(obj, collections.Callable):
+        def wrapper(self, *args, **kwargs):
+            if self.destroyed:
+                raise RuntimeError('Cannot use attributes of a destroyed node.')
+            return obj(self, *args, **kwargs)
+        wrapper.__name__ = obj.__name__
+        wrapper.__doc__ = obj.__doc__
+        wrapper._destruction_ready = True
+    elif isinstance(obj, property):
+        def wrapper(self, *args, **kwargs):
+            if self.destroyed:
+                raise RuntimeError('Cannot use attributes of a destroyed node.')
+            return obj
+        wrapper = property()
+        getter = _destroyer(obj.getter)
+        setter = _destroyer(obj.setter)
+        deleter = _destroyer(obj.deleter)
+        wrapper.__doc__ = property(getter, setter, deleter, obj.__doc__)
+        wrapper._destruction_ready = True
+    else:
+        wrapper = obj
+        pass
+    return wrapper
+
+class _NodeClassBuilder(abc.ABCMeta, type):
+    """docstring for _NodeClassBuilder"""
+
+    def __new__(mcls, name, bases, attrs):
+        print(type(attrs))
+        for name in attrs:
+            if name not in set(['destroy', 'destroyed', '_Node__destroyed', '__metaclass__']) or not (name.startswith('__') and name.endswith('__')):
+                attrs['name'] = _destroyer(name)
+                print(repr(name))
+        cls = super(_NodeClassBuilder, mcls).__new__(mcls, name, bases, attrs)
+        return cls
+
+class _Counter(object):
+    """docstring for _Counter"""
+    def __init__(self):
+        super(_Counter, self).__init__()
+        self.__count = 1
+
+    def increment(self):
+        retval = int(self)
+        self.__count += 1
+        return retval
+
+    def __int__(self):
+        return int(self.__count)
 
 class Node(object):
-    __metaclass__ = abc.ABCMeta
+    # __metaclass__ = abc.ABCMeta
+    __metaclass__ = _NodeClassBuilder
 
-    """docstring for Node"""
-    def __init__(self, parent, name=None):
-        super(Node, self).__init__()
-        if not isinstance(parent, Node) and parent is not None: raise TypeError()
+    _id_counter = _Counter()
+
+    def __new__(cls, parent, name=None):
+        self = super(Node, cls).__new__(cls)
+        self.__id = cls._id_counter.increment()
+
+        if not isinstance(parent, Node) and parent is not None:
+            raise TypeError()
 
         self.__parent = parent
         self.__position = Vec2(x=0, y=0)
@@ -217,10 +264,42 @@ class Node(object):
         self.__parameters = _TypedList(Parameter)
         self.__inputLabels = _TypedList(str)
         self.__inputLabels.extend(map("Input: {0}".format, range(self.numInputs)))
+        self.__destroyed = False
 
         if name is None:
             name = type(self).__name__
         self.name = name
+
+        return self
+
+    """docstring for Node"""
+    def __init__(self, parent, name=None):
+        super(Node, self).__init__()
+
+
+    @property
+    def id(self):
+        """Read-only attribute for the id of the node
+
+        This is different from the value returned from the builtin id function. The CPython implementation uses the memory address of the object.
+        The problem with this is that it is possible to have id values be reused as objects are freed and acquired."""
+        return self.__id
+
+    def __cmp_key(self):
+        return (self.__class__, self.id)
+
+    def __hash__(self):
+        return hash(self.__cmp_key())
+
+    def __eq__(self, other):
+        return self.__cmp_key() == other.__cmp_key()
+
+    def destroy(self):
+        self.__destroyed = True
+
+    @property
+    def destroyed(self):
+        return self.__destroyed
 
     @abc.abstractmethod
     def cook(self, **kwargs):
