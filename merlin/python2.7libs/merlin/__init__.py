@@ -5,6 +5,7 @@ import os
 
 def main(argv=sys.argv):
     print("we are running merlin main. Huzzah!")
+    load_scene('')
     sys.exit()
 
 def load_scene(path):
@@ -13,7 +14,17 @@ def load_scene(path):
     We create a restricted environment, execute the python statements and
     return the scene object that is generated. If no scene object is built, then
     a keyerror is thrown."""
-    bi = vars(__builtins__).copy()
+    print(type(__builtins__))
+    bi = __builtins__
+    if not isinstance(bi, dict):
+        bi = vars(bi)
+    bi = bi.copy()
+
+    namespace = dict(__builtins__=bi)
+
+    # for m in ['merlin', 'merlin.scene']:
+        # exec('import %s' % m, namespace)
+
     bi.pop('__import__')
     bi.pop('execfile')
     bi.pop('file')
@@ -21,15 +32,9 @@ def load_scene(path):
     bi.pop('exit')
     bi.pop('quit')
 
-    namespace = dict(__builtins__=bi)
+    # print(namespace)
+    # namespace['merlin'] = merlin
 
-    for m in ['merlin', 'merlin.scene']:
-        eval('import %s' % m)
+    # execfile(path, namespace)
 
-    namespace['merlin'] = merlin
-
-    execfile(path, namespace)
-
-    return namespace['scene']
-
-del sys, os
+    # return namespace['scene']
