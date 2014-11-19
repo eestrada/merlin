@@ -194,6 +194,48 @@ class _TypedList(list):
     def type(self):
         return self.__type
 
+class _TypedSet(set):
+    """docstring for _TypedSet"""
+    def __init__(self, type):
+        super(_TypedSet, self).__init__()
+        self.__type = type
+
+    def __setitem__(self, i, v):
+        if not isinstance(v, self.type):
+            raise ValueError()
+        return super(_TypedSet, self).__setitem__(i, v)
+
+    def add(self, elem):
+        if not isinstance(elem, self.type):
+            raise TypeError()
+        return super(_TypedSet, self).add(elem)
+
+    def _update(self, func, *iterables):
+        if len(iterables) < 1:
+            raise RuntimeError('At least one iterable must be specified')
+        def check_type(o):
+            if not isinstance(o, self.type): raise TypeError()
+            else: return o
+        tmpset = set()
+        for i in iterables:
+            tmpset.update(map(check_type, i))
+        return super(_TypedSet, self).update(tmpset)
+
+    def update(self, *iterables):
+        if len(iterables) < 1:
+            raise RuntimeError('At least one iterable must be specified')
+        def check_type(o):
+            if not isinstance(o, self.type): raise TypeError()
+            else: return o
+        tmpset = set()
+        for i in iterables:
+            tmpset.update(map(check_type, i))
+        return super(_TypedSet, self).update(tmpset)
+
+    @property
+    def type(self):
+        return self.__type
+
 def _destroyer(obj):
     if isinstance(obj, collections.Callable):
         def wrapper(self, *args, **kwargs):
@@ -226,8 +268,9 @@ class _NodeClassBuilder(abc.ABCMeta, type):
         print(type(attrs))
         for name in attrs:
             if name not in set(['destroy', 'destroyed', '_Node__destroyed', '__metaclass__']) or not (name.startswith('__') and name.endswith('__')):
-                attrs['name'] = _destroyer(name)
+                attrs[name] = _destroyer(attrs[name])
                 print(repr(name))
+                print(repr(attrs[name]))
         cls = super(_NodeClassBuilder, mcls).__new__(mcls, name, bases, attrs)
         return cls
 
@@ -383,3 +426,49 @@ class Node(object):
 
         Parameters may be nested if they are of the correct type (e.g. Folder type)."""
         return self.__parameters
+
+class _RootNode(Node):
+    """docstring for _RootNode"""
+    def __new__(cls):
+        self = super(_RootNode, cls).__new__(cls, None, '/')
+        return self
+
+    @property
+    def numInputs(self):
+        return 0
+
+    def cook(self, **kwargs):
+        """Do nothing, since we are root"""
+        pass
+
+    @property
+    def children(self):
+        pass
+
+    @property
+    def name(self):
+        return super(_RootNode, self).name
+
+    @name.setter
+    def name(self, v):
+        raise RuntimeError('Root node cannot be renamed.')
+
+class _Scene(object):
+    """docstring for _Scene"""
+    def __init__(self, fpath=None):
+        super(_Scene, self).__init__()
+        self.fpath = fpath
+
+        if self.fpath:
+            self.loadScene()
+        else:
+            self.initEmpty()
+
+    def loadScene(self):
+        if not self.fpath:
+            raise ValueError('fpath must be initialized to a value.')
+        from . import spellscript
+        spellscript.loadScene(self.fpath, self)
+
+    def initEmpty(self):
+        self.root = _RootNode(self)
