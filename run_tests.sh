@@ -14,7 +14,7 @@ if which python2 >/dev/null ; then
 	py2v=$(python2 --version 2>&1)
 	echoerr "Running python test suite with ${py2v}..."
 	echoerr
-	python2 testsuite.py "$@"
+	python2 $(dirname "$0")/testsuite.py "$@"
 else
 	echoerr "Python2 could not be found."
 fi
@@ -23,7 +23,7 @@ if which python3 >/dev/null ; then
 	py3v=$(python3 --version 2>&1)
 	echoerr "Running python test suite with ${py3v}..."
 	echoerr
-	python3 testsuite.py "$@"
+	python3 $(dirname "$0")/testsuite.py "$@"
 else
 	echoerr "Python3 could not be found."
 fi
