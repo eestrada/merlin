@@ -289,16 +289,14 @@ class _Counter(object):
         return int(self.__count)
 
 class Node(object):
+    """docstring for Node"""
     # __metaclass__ = abc.ABCMeta
     __metaclass__ = _NodeClassBuilder
 
-    _id_counter = _Counter()
-
     def __new__(cls, parent, name=None):
         self = super(Node, cls).__new__(cls)
-        self.__id = cls._id_counter.increment()
 
-        if not isinstance(parent, Node) and parent is not None:
+        if not (isinstance(parent, Node) or parent is None):
             raise TypeError()
 
         self.__parent = parent
@@ -315,27 +313,24 @@ class Node(object):
 
         return self
 
-    """docstring for Node"""
-    def __init__(self, parent, name=None):
-        super(Node, self).__init__()
-
-
-    @property
-    def id(self):
-        """Read-only attribute for the id of the node
-
-        This is different from the value returned from the builtin id function. The CPython implementation uses the memory address of the object.
-        The problem with this is that it is possible to have id values be reused as objects are freed and acquired."""
-        return self.__id
+    def __init__(self, *args, **kwrags): raise AttributeError("No constructor defined")
 
     def __cmp_key(self):
-        return (self.__class__, self.id)
+        return (self.__class__, self.path, id(self))
 
     def __hash__(self):
         return hash(self.__cmp_key())
 
     def __eq__(self, other):
-        return self.__cmp_key() == other.__cmp_key()
+        sck = self.__cmp_key()
+        ock = other.__cmp_key()
+        if sck == sck:
+            return True
+        elif sck[1]==ock[1] and (sck[0]!=ock[0] or sck[2]!=ock[2]):
+            # Catch identical nodes being created that are not the same python object
+            raise RuntimeError('Nodes have same path but are not the same Python object!')
+        else:
+            return False
 
     def destroy(self):
         self.__destroyed = True
@@ -348,7 +343,7 @@ class Node(object):
     def cook(self, **kwargs):
         """Method to call when a node instance is being cooked
 
-        The value(s) it receives and/or returns is context specific. For instance, in a geometry context, a geometry object would be returned."""
+        The value(s) it receives is context specific. For instance, in a geometry context, a geometry object would be passed in."""
         pass
 
     @property
@@ -377,7 +372,7 @@ class Node(object):
                 raise TypeError()
         # TODO (eestrada): sanitize input
         if self.parent is not None:
-            n = self.parent.unique_name(n)
+            n = self.parent.uniqueName(n)
         self.__name = n
 
     @property
@@ -391,7 +386,12 @@ class Node(object):
         For nodes that cannot have children, this returns None."""
         return None
 
-    def unique_name(self, name):
+    @abc.abstractmethod
+    def createNode(self, type_name, node_name=None):
+        """Create and return a node of the specified type"""
+        pass
+
+    def uniqueName(self, name):
         raise NotImplementedError()
         def split_suffix_nums(n):
             nc = n.rstrip('0123456789')
