@@ -2,11 +2,37 @@ from __future__ import division, absolute_import, print_function, unicode_litera
 
 import sys
 import os
+from ._py3fixes import *
+from ._types import *
+
+_scene_root = None
 
 def main(argv=sys.argv):
     print("we are running merlin main. Huzzah!")
     load_scene('')
     sys.exit()
+
+def pathRecurse(n, pl):
+    for c in n.children:
+        if c.name == pl[0]:
+            if len(pl) == 1:
+                return c
+            elif c.children is None:
+                break
+            else:
+                return pathRecurse(c, pl[1:])
+    raise KeyError('Path does not exist')
+
+def node(path):
+    if path == '/':
+        return _scene_root
+    else:
+        return pathRecurse(_scene_root, path.split('/')[1:])
+
+def new_scene():
+    global _scene_root
+    _scene_root = Node.__new__(Node, None, '/')
+    # TODO: init default scene and out manager nodes
 
 def load_scene(path):
     """merlin scene files are simply a series of python statements
@@ -38,3 +64,6 @@ def load_scene(path):
     # execfile(path, namespace)
 
     # return namespace['scene']
+
+if _scene_root is None:
+    new_scene()
