@@ -1,9 +1,17 @@
+from __future__ import division, absolute_import, print_function, unicode_literals
+
 from array import array
+import re
 import abc
 import cython
 import collections
 import itertools
 import weakref
+
+try:
+    import builtins
+except ImportError as e:
+    import __builtin__ as builtins
 
 @cython.locals(s=collections.Sequence, i=cython.int)
 def _seq_get(s, i, *args):
@@ -144,6 +152,56 @@ class ParmToggle(Parameter):
     def eval(self):
         return bool(self.expression.eval()) if self.expression else bool(self.value)
 
+# TODO: swap out _InputMap with an _InputSequence
+class InputSequence(collections.Sequence):
+    """docstring for InputSequence"""
+    pairtuple = collections.namedtuple('NodeInput', ['label', 'value'])
+
+    def __init__(self, owner, max=1):
+        super(InputSequence, self).__init__()
+        self._max = int(max)
+        self._owner = owner
+        self._indexmap = dict()
+        self._namemap = dict()
+
+    def __getitem__(self, index):
+        if index < 0 or index >= self._max:
+            raise IndexError('InputSequence index out of range')
+        return self._indexmap.get(index, None)
+
+    def __setitem__(self, index, value):
+        if index < 0 or index >= self._max:
+            raise IndexError('InputSequence index out of range')
+        elif value.parent != self._owner.parent:
+            raise RuntimeError('Cannot add as an input a Node with a different parent.')
+        self._indexmap[index] = value
+
+    def __len__(self):
+        return self._max
+
+    def getLabel(self, index):
+        if index < 0 or index >= self._max:
+            raise IndexError('InputSequence index out of range')
+        return self._namemap.get(index, 'Input %d' % index)
+
+    def setLabel(self, index, label):
+        if index < 0 or index >= self._max:
+            raise IndexError('InputSequence index out of range')
+        self._namemap[index] = str(label)
+
+    def getPair(self, index):
+        label = self.getLabel(index)
+        value = self[index]
+        return self.pairtuple(label, value)
+
+    def iterLabels(self):
+        for i in range(len(self)):
+            yield self.getLabel(i)
+
+    def iterPairs(self):
+        for i in range(len(self)):
+            yield self.getPair(i)
+
 class _InputMap(weakref.WeakValueDictionary, object):
     """docstring for _InputMap"""
 
@@ -194,47 +252,87 @@ class _TypedList(list):
     def type(self):
         return self.__type
 
-class _TypedSet(set):
-    """docstring for _TypedSet"""
-    def __init__(self, type):
-        super(_TypedSet, self).__init__()
-        self.__type = type
+class TypedSet(collections.MutableSet):
+    """docstring for TypedSet"""
+    def __init__(self, iterable=[], *types):
+        if not types:
+            types = (object,) # This should accept instances of all new style classes
+        else:
+            types = tuple(types)
 
-    def __setitem__(self, i, v):
-        if not isinstance(v, self.type):
-            raise ValueError()
-        return super(_TypedSet, self).__setitem__(i, v)
+        for t in types:
+            if not issubclass(t, object):
+                raise TypeError('Class {c} is not a new style class.'.format(c=t))
 
-    def add(self, elem):
-        if not isinstance(elem, self.type):
-            raise TypeError()
-        return super(_TypedSet, self).add(elem)
+        super(TypedSet, self).__init__()
 
-    def _update(self, func, *iterables):
-        if len(iterables) < 1:
-            raise RuntimeError('At least one iterable must be specified')
-        def check_type(o):
-            if not isinstance(o, self.type): raise TypeError()
-            else: return o
-        tmpset = set()
-        for i in iterables:
-            tmpset.update(map(check_type, i))
-        return super(_TypedSet, self).update(tmpset)
+        self._types = types
+        self._set = set()
 
-    def update(self, *iterables):
-        if len(iterables) < 1:
-            raise RuntimeError('At least one iterable must be specified')
-        def check_type(o):
-            if not isinstance(o, self.type): raise TypeError()
-            else: return o
-        tmpset = set()
-        for i in iterables:
-            tmpset.update(map(check_type, i))
-        return super(_TypedSet, self).update(tmpset)
+        self |= iterable
 
-    @property
-    def type(self):
-        return self.__type
+    def _from_iterable(self, it):
+        return self.__class__(it, *self._types)
+
+    def __repr__(self):
+        types = map(lambda t: t.__name__, self._types)
+        types = ', '.join(types)
+        types = ''.join(['(', types, ')'])
+        return '{cls}({it}, *{types})'.format(cls=self.__class__.__name__,
+                                          types=types,
+                                          it=list(self))
+
+    def __contains__(self, value):
+        return value in self._set
+
+    def __iter__(self):
+        return iter(self._set)
+
+    def __len__(self):
+        return len(self._set)
+
+    def add(self, value):
+        if not isinstance(value, self._types):
+            raise TypeError('Value "{0!r}" was not of the right type.'.format(value))
+        self._set.add(value)
+
+    def discard(self, value):
+        self._set.discard(value)
+
+    def pop(self):
+        return self._set.pop()
+
+    def clear(self):
+        self._set.clear()
+
+class NodeSet(TypedSet):
+    """docstring for NodeSet"""
+    def __init__(self, iterable, parent, *types):
+        if not types:
+            types = (Node,)
+        else:
+            types = set(types) | set([Node])
+        super(NodeSet, self).__init__(iterable, *types)
+        self._parent = parent
+
+    def _from_iterable(self, it):
+        return self.__class__(it, self._parent, *self._types)
+
+    def add(self, value):
+        if not isinstance(value, self._types):
+            raise TypeError('Value "{0!r}" was not of the right type.'.format(value))
+        value._parent = self._parent
+        value.name = value.name # this will rename "value" to have a unique name within its new parent
+        self._set.add(value)
+
+    def destroyall(self):
+        '''Run destroy on all contained nodes, then clear self
+
+        This is mainly useful for merlin Node types that need to destroy
+        their children.'''
+        for elem in self:
+            elem.destroy()
+        self.clear()
 
 def _destroyer(obj):
     if isinstance(obj, collections.Callable):
@@ -274,46 +372,50 @@ class _NodeClassBuilder(abc.ABCMeta, type):
         cls = super(_NodeClassBuilder, mcls).__new__(mcls, name, bases, attrs)
         return cls
 
-class _Counter(object):
-    """docstring for _Counter"""
-    def __init__(self):
-        super(_Counter, self).__init__()
-        self.__count = 1
+class _NodeClassBuilder(abc.ABCMeta, type):
+    """docstring for _NodeClassBuilder"""
 
-    def increment(self):
-        retval = int(self)
-        self.__count += 1
-        return retval
+    node_types = dict()
+    def __new__(mcls, name, bases, attrs):
+        cls = super(_NodeClassBuilder, mcls).__new__(mcls, name, bases, attrs)
+        if name in mcls.node_types:
+            RuntimeError('Node class "{0!r}" is being redefined. This is not allowed.'.format(name))
+        else:
+            mcls.node_types[name] = cls
+        return cls
 
-    def __int__(self):
-        return int(self.__count)
+_name_splitter = re.compile(r'(?P<name>[a-zA-Z]+)(?P<num>[0-9]+)?')
 
 class Node(object):
     """docstring for Node"""
     # __metaclass__ = abc.ABCMeta
     __metaclass__ = _NodeClassBuilder
 
+    child_types = (Node)
+
     def __new__(cls, parent, name=None):
         self = super(Node, cls).__new__(cls)
 
-        if not (isinstance(parent, Node) or parent is None):
+        if not isinstance(parent, (Node, type(None))):
             raise TypeError()
 
-        self.__parent = parent
-        self.__position = Vec2(x=0, y=0)
-        self.__inputs = _InputMap(self.numInputs)
-        self.__parameters = _TypedList(Parameter)
-        self.__inputLabels = _TypedList(str)
-        self.__inputLabels.extend(map("Input: {0}".format, range(self.numInputs)))
-        self.__destroyed = False
+        self._parent = parent
+        self._children = NodeSet([], self, cls.child_types)
+        self._position = Vec2(x=0, y=0)
+        self._inputs = InputSequence(self, self.numInputs)
+        self._parameters = _TypedList(Parameter)
+        self._destroyed = False
 
-        if name is None:
-            name = type(self).__name__
-        self.name = name
+        if cls == Node:
+            self._name = '/'
+        else:
+            if name is None:
+                name = type(self).__name__ + str(1)
+            self.name = name
 
         return self
 
-    def __init__(self, *args, **kwrags): raise AttributeError("No constructor defined")
+    def __init__(self, *args, **kwrags): raise AttributeError("No public constructor defined")
 
     def __cmp_key(self):
         return (self.__class__, self.path, id(self))
@@ -333,17 +435,20 @@ class Node(object):
             return False
 
     def destroy(self):
-        self.__destroyed = True
+        self._destroyed = True
 
     @property
     def destroyed(self):
-        return self.__destroyed
+        return self._destroyed
 
-    @abc.abstractmethod
     def cook(self, **kwargs):
         """Method to call when a node instance is being cooked
 
-        The value(s) it receives is context specific. For instance, in a geometry context, a geometry object would be passed in."""
+        The value(s) it receives is context specific. For instance, in a
+        geometry context, a geometry object would be passed in. The object
+        must be mutated to have any effect.
+
+        If an node requires data from its inputs, it must request that they also cook."""
         pass
 
     @property
@@ -361,7 +466,7 @@ class Node(object):
 
     @property
     def name(self):
-        return self.__name
+        return self._name
 
     @name.setter
     def name(self, n):
@@ -373,25 +478,34 @@ class Node(object):
         # TODO (eestrada): sanitize input
         if self.parent is not None:
             n = self.parent.uniqueName(n)
-        self.__name = n
+        self._name = n
 
     @property
     def parent(self):
-        return self.__parent
+        return self._parent
 
-    @abc.abstractproperty
+    @property
     def children(self):
         """Returns a set-like object of the Node's children.
 
-        For nodes that cannot have children, this returns None."""
-        return None
+        For nodes that cannot have children, this should return None."""
+        return self._children
 
-    @abc.abstractmethod
     def createNode(self, type_name, node_name=None):
-        """Create and return a node of the specified type"""
-        pass
+        """Create a node of the specified type as a child node and return it"""
+        cls = self.__metaclass__.node_types[type_name]
+        if not issubclass(cls, self.__class__.child_types):
+            raise RuntimeError('Cannot create a node of this type as a child node.')
+
+        child = cls.__new__(cls, self, node_name)
+        self.children.add(child)
+        return child
 
     def uniqueName(self, name):
+        cs = set(map(lambda n: n.name, self.children))
+        if name not in cs:
+            return name
+
         raise NotImplementedError()
         def split_suffix_nums(n):
             nc = n.rstrip('0123456789')
@@ -403,29 +517,27 @@ class Node(object):
         if name in childset:
             pass
 
-    @abc.abstractproperty
+    @property
     def numInputs(self):
-        return 1
+        return 0
 
     @property
     def position(self):
-        return self.__position
+        return self._position
 
     @property
     def inputs(self):
-        """Return a mutable mapping object with input indices as the keys and Nodes as the values"""
-        return self.__inputs
+        """Return a sequence of input values
 
-    @property
-    def inputLabels(self):
-        return self.__inputLabels
+        Empty inputs indices will simply return None."""
+        return self._inputs
 
     @property
     def parameters(self):
         """Return a mutable sequence of all parameters.
 
         Parameters may be nested if they are of the correct type (e.g. Folder type)."""
-        return self.__parameters
+        return self._parameters
 
 class _RootNode(Node):
     """docstring for _RootNode"""
