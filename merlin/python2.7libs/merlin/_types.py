@@ -8,6 +8,8 @@ import collections
 import itertools
 import weakref
 
+from ._py3fixes import *
+
 try:
     import builtins
 except ImportError as e:
@@ -179,6 +181,14 @@ class InputSequence(collections.Sequence):
     def __len__(self):
         return self._max
 
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self._indexmap.get(i, None)
+
+    def __reversed__(self):
+        for i in reversed(range(len(self))):
+            yield self._indexmap.get(i, None)
+
     def getLabel(self, index):
         if index < 0 or index >= self._max:
             raise IndexError('InputSequence index out of range')
@@ -196,11 +206,11 @@ class InputSequence(collections.Sequence):
 
     def iterLabels(self):
         for i in range(len(self)):
-            yield self.getLabel(i)
+            yield self._namemap.get(index, 'Input %d' % index)
 
     def iterPairs(self):
-        for i in range(len(self)):
-            yield self.getPair(i)
+        for p in zip(self.iterLabels(), iter(self)):
+            yield self.pairtuple(*p)
 
 class _InputMap(weakref.WeakValueDictionary, object):
     """docstring for _InputMap"""
