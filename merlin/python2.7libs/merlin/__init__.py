@@ -12,15 +12,15 @@ def main(argv=sys.argv):
     load_scene('')
     sys.exit()
 
-def pathRecurse(n, pl):
-    for c in n.children:
-        if c.name == pl[0]:
-            if len(pl) == 1:
-                return c
-            elif c.children is None:
+def pathRecurse(node, pathlist):
+    for child in node.children:
+        if child.name == pathlist[0]:
+            if len(pathlist) == 1:
+                return child
+            elif child.children is None:
                 break
             else:
-                return pathRecurse(c, pl[1:])
+                return pathRecurse(child, pathlist[1:])
     raise KeyError('Path does not exist')
 
 def node(path):
