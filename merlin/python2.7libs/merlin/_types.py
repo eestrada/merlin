@@ -5,6 +5,7 @@ import re
 import abc
 import cython
 import collections
+import operator
 import itertools
 import weakref
 
@@ -62,11 +63,13 @@ class _VecBase(object):
         return self
 
     def __mul__(self, other):
-        assert len(self) == len(other)
-        rval = self.__class__(*self)
-        for i in range(len(rval)):
-            rval[i] *= other[i]
-        return rval
+        return self.__class__(map(operator.mul, self, other))
+
+    def dot(self, other):
+        return float(sum(map(operator.mul, self, other)))
+
+    def cross(self, other):
+        pass
 
     @cython.locals(i=cython.int)
     def __getitem__(self, i):
